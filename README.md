@@ -1,4 +1,4 @@
-# Verschränkte System 146:219
+# Verschränkte Systeme 146:219
 
 This project contains my set-up for a particular _Anemone Actiniaria_ performance / piece.
 
