@@ -16,11 +16,11 @@ package de.sciss.anemone.entangled
 import java.awt.geom.Line2D
 import java.awt.image.BufferedImage
 import java.awt.{BasicStroke, Color, RenderingHints}
-import java.io.{DataInputStream, DataOutputStream, FileInputStream, FileOutputStream}
+import java.io.{BufferedInputStream, BufferedOutputStream, DataInputStream, DataOutputStream, FileInputStream, FileOutputStream}
 
 import de.sciss.file._
 import de.sciss.kollflitz.Vec
-import de.sciss.neuralgas.{ComputeGNG, ImagePD, PD}
+import de.sciss.neuralgas.{Algorithm, ComputeGNG, EdgeGNG, ImagePD, NodeGNG, PD}
 import de.sciss.{kollflitz, neuralgas, numbers}
 import javax.imageio.ImageIO
 
@@ -230,32 +230,6 @@ object Neural {
   case class ResGNG(surfaceWidthPx: Int, surfaceHeightPx: Int, nodes: Vec[Point2D],
                     edges: Vec[Edge])
 
-  def readGNG(fGNG: File): ResGNG = {
-    val fis = new FileInputStream(fGNG)
-    try {
-      val dis = new DataInputStream(fis)
-      require (dis.readInt() == GNG_COOKIE)
-      val surfaceWidthPx  = dis.readShort()
-      val surfaceHeightPx = dis.readShort()
-      val nNodes = dis.readInt()
-      val nodes = Vector.fill(nNodes) {
-        val x = dis.readFloat()
-        val y = dis.readFloat()
-        Point2D(x, y)
-      }
-      val nEdges = dis.readInt()
-      val edges = Vector.fill(nEdges) {
-        val from = dis.readInt()
-        val to   = dis.readInt()
-        Edge(from, to)
-      }
-      ResGNG(surfaceWidthPx, surfaceHeightPx, nodes, edges)
-
-    } finally {
-      fis.close()
-    }
-  }
-
   def run(config: Config): Unit = {
     import config._
 
@@ -318,7 +292,7 @@ object Neural {
         } else {
           val imgInF  = formatImgIn(imgFloorIdx)
           imgFloor    = ImageIO.read(imgInF)
-          pdFloor     = new ImagePD(imgFloor, invertPD)
+          pdFloor     = new ImagePD(imgFloor, !invertPD)
         }
       }
       if (imgCeilIdx != frameInCeil) {
@@ -329,26 +303,36 @@ object Neural {
         } else {
           val imgInF  = formatImgIn(imgCeilIdx)
           imgCeil     = ImageIO.read(imgInF)
-          pdCeil      = new ImagePD(imgCeil, invertPD)
+          pdCeil      = new ImagePD(imgCeil, !invertPD)
         }
       }
 
       for (fStep <- 0 until frameStep) {
-        import numbers.Implicits._
-        val weight    = fStep.linlin(0, frameStep, 0, 1)
-        val isFloor   = rnd.nextDouble() >= weight
-        c.pd          = if (isFloor) pdFloor  else pdCeil
-        val img       = if (isFloor) imgFloor else imgCeil
-        val w         = img.getWidth
-        val h         = img.getHeight
-        c.panelWidth  = w
-        c.panelHeight = h
-
-        c.learn(res)
         val fGNG      = formatGNGOut(frameOutIdx)
         val fImgOut   = formatImgOut(frameOutIdx)
-        writeGNG(c, fGNG)
-        renderImage(config, c = c, fImgOut = fImgOut, quiet = true)
+
+        if (fGNG.length() > 0) {
+          readGNG(c, fGNG)
+          rnd.setSeed(rnd.nextLong()) // XXX TODO --- should store a recoverable seed
+
+        } else {
+          import numbers.Implicits._
+          val weight    = fStep.linlin(0, frameStep, 0, 1)
+          val isFloor   = rnd.nextDouble() >= weight
+          c.pd          = if (isFloor) pdFloor  else pdCeil
+          val img       = if (isFloor) imgFloor else imgCeil
+          val w         = img.getWidth
+          val h         = img.getHeight
+          c.panelWidth  = w
+          c.panelHeight = h
+
+          c.learn(res)
+          writeGNG(c, fGNG)
+        }
+
+        if (fImgOut.length() == 0L) {
+          renderImage(config, c = c, fImgOut = fImgOut, quiet = true)
+        }
 
         val progress: Int = (frameOutIdx * 100) / numOutFrames
         if (lastProgress < progress) {
@@ -363,10 +347,108 @@ object Neural {
     }
   }
 
+  def readGNG(c: ComputeGNG, fIn: File): Unit = {
+    val fis = new FileInputStream(fIn)
+    try {
+      val dis = new DataInputStream(new BufferedInputStream(fis))
+      val cookie = dis.readInt    ()
+      require (cookie == GNG_COOKIE, s"Unexpected cookie ${cookie.toHexString} != ${GNG_COOKIE.toHexString}")
+      c.algorithm           = Algorithm.values.apply(dis.readInt())
+      c.alphaGNG            = dis.readFloat  ()
+      c.autoStopB           = dis.readBoolean()
+      c.setBetaGNG           (dis.readFloat  ())
+      c.delEdge_f           = dis.readFloat  ()
+      c.delEdge_i           = dis.readFloat  ()
+      c.e_f                 = dis.readFloat  ()
+      c.e_i                 = dis.readFloat  ()
+      c.epsilon             = dis.readFloat  ()
+      c.epsilonGNG          = dis.readFloat  ()
+      c.epsilonGNG2         = dis.readFloat  ()
+      c.errorBestLBG_U      = dis.readFloat  ()
+      c.fineTuningB         = dis.readBoolean()
+      //      c.fineTuningS
+      c.gridWidth           = dis.readInt    ()
+      c.GNG_U_B             = dis.readBoolean()
+      c.gridHeight          = dis.readInt    ()
+      c.l_f                 = dis.readFloat  ()
+      c.l_i                 = dis.readFloat  ()
+      c.lambdaGNG           = dis.readInt    ()
+      c.LBG_U_B             = dis.readBoolean()
+      c.maxEdgeAge          = dis.readInt    ()
+      c.maxNodes            = dis.readInt    ()
+      c.maxYGG              = dis.readInt    ()
+      c.nNodesChangedB      = dis.readBoolean()
+      c.noNewNodesGGB       = dis.readBoolean()
+      c.noNewNodesGNGB      = dis.readBoolean()
+      c.numDiscreteSignals  = dis.readInt    ()
+      c.numSignals          = dis.readInt    ()
+      c.panelWidth          = dis.readInt    ()
+      c.panelHeight         = dis.readInt    ()
+      c.readyLBG_B          = dis.readBoolean()
+      c.rndInitB            = dis.readBoolean()
+      c.sigma               = dis.readFloat  ()
+      c.sigma_f             = dis.readFloat  ()
+      c.sigma_i             = dis.readFloat  ()
+      c.SignalX             = dis.readFloat  ()
+      c.SignalY             = dis.readFloat  ()
+      c.stepSize            = dis.readInt    ()
+      c.t_max               = dis.readFloat  ()
+      c.torusGGB            = dis.readBoolean()
+      c.torusSOMB           = dis.readBoolean()
+      c.utilityGNG          = dis.readFloat  ()
+      c.valueGraph          = dis.readFloat  ()
+      c.variableB           = dis.readBoolean()
+
+      c.nNodes = dis.readInt()
+      var i = 0
+      while (i < c.nNodes) {
+        val n = new NodeGNG
+        n.error                   = dis readFloat  ()
+        n.hasMoved                = dis readBoolean()
+        n.isMostRecentlyInserted  = dis readBoolean()
+        n.isWinner                = dis readBoolean()
+        n.isSecond                = dis readBoolean()
+        n.sqrDist                 = dis readFloat  ()
+        n.tau                     = dis readFloat  ()
+        n.utility                 = dis readFloat  ()
+        n.x                       = dis readFloat  ()
+        n.y                       = dis readFloat  ()
+        n.x_grid                  = dis readInt    ()
+        n.y_grid                  = dis readInt    ()
+
+        val nn = dis.readInt()
+        var j = 0
+        while (j < nn) {
+          val ni = dis.readInt()
+          n.addNeighbor(ni)
+          j += 1
+        }
+
+        c.nodes(i) = n
+        i += 1
+      }
+
+      c.nEdges = dis.readInt()
+      i = 0
+      while (i < c.nEdges) {
+        val e = new EdgeGNG
+        e.from  = dis.readInt()
+        e.to    = dis.readInt()
+        e.age   = dis.readInt()
+
+        c.edges(i) = e
+        i += 1
+      }
+
+    } finally {
+      fis.close()
+    }
+  }
+
   def writeGNG(c: ComputeGNG, fOut: File): Unit = {
     val fos = new FileOutputStream(fOut)
     try {
-      val dos = new DataOutputStream(fos)
+      val dos = new DataOutputStream(new BufferedOutputStream(fos))
       dos writeInt      GNG_COOKIE
       dos writeInt      c.algorithm.ordinal()
       dos writeFloat    c.alphaGNG
@@ -418,18 +500,39 @@ object Neural {
       var i = 0
       while (i < c.nNodes) {
         val n = c.nodes(i)
-        dos.writeFloat(n.x)
-        dos.writeFloat(n.y)
+        dos writeFloat    n.error
+        dos writeBoolean  n.hasMoved
+        dos writeBoolean  n.isMostRecentlyInserted
+        dos writeBoolean  n.isWinner
+        dos writeBoolean  n.isSecond
+        dos writeFloat    n.sqrDist
+        dos writeFloat    n.tau
+        dos writeFloat    n.utility
+        dos writeFloat    n.x
+        dos writeFloat    n.y
+        dos writeInt      n.x_grid
+        dos writeInt      n.y_grid
+        val nn = n.numNeighbors
+        dos writeInt      nn
+        var j = 0
+        while (j < nn) {
+          dos writeInt    n.neighbor.apply(j)
+          j += 1
+        }
         i += 1
       }
+
       dos.writeInt(c.nEdges)
       i = 0
       while (i < c.nEdges) {
         val e = c.edges(i)
-        dos.writeInt(e.from)
-        dos.writeInt(e.to  )
+        dos writeInt e.from
+        dos writeInt e.to
+        dos writeInt e.age
         i += 1
       }
+
+      dos.flush()
 
     } finally {
       fos.close()
