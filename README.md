@@ -10,3 +10,7 @@ To contact the author, send an email to `contact at sciss.de`.
 ## building
 
 Builds with sbt against Scala 2.12.
+
+## video rendering
+
+    ffmpeg -i out_test/collat_7a510609-out-%d.png -r 25 -vf scale=1080:1080 out.mp4

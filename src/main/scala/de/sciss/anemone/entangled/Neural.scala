@@ -21,35 +21,118 @@ import java.io.{BufferedInputStream, BufferedOutputStream, DataInputStream, Data
 import de.sciss.file._
 import de.sciss.kollflitz.Vec
 import de.sciss.neuralgas.{Algorithm, ComputeGNG, EdgeGNG, ImagePD, NodeGNG, PD}
+import de.sciss.synth.Curve
+import de.sciss.synth.Curve.linear
 import de.sciss.{kollflitz, neuralgas, numbers}
 import javax.imageio.ImageIO
+
+import scala.language.implicitConversions
 
 object Neural {
   def formatTemplate(temp: File, n: Int): File =
     temp.replaceName(temp.name.format(n))
 
-  case class Config(imgInTemp     : File    = file("in-%d.png"),
-                    imgOutTemp    : File    = file("out-%d.png"),
-                    gngOutTemp    : File    = null,
-                    startInIdx    : Int     = 1,
-                    endInIdx      : Int     = -1,
-                    frameStep     : Int     = 10,
-                    holdFirst     : Int     = 0,
-                    invertPD      : Boolean = false,
-                    invertImgOut  : Boolean = false,
-                    strokeWidth   : Double  = 2.0,
-                    rngSeed       : Int     = 0xBEE,
-                    maxNodes      : Int     = 4000,
-                    gngStepSize   : Int     = 27,
-                    gngLambda     : Int     = 27,
-                    gngEdgeAge    : Int     = 108,
-                    gngEpsilon    : Double  = 0.05,
-                    gngEpsilon2   : Double  = 1.0e-4,
-                    gngAlpha      : Double  = 0.2,
-                    gngBeta       : Double  = 5.0e-6,
-                    gngUtility    : Double  = 18.0,
-                    widthOut      : Int     = 0,
-                    heightOut     : Int     = 0
+  case class Segment(numFrames: Int, targetLevel: Double, curve: Curve = linear) {
+    require (numFrames > 0)
+  }
+
+  object Envelope {
+    implicit def constant(f: Double): Envelope = Envelope(f, Vector.empty)
+
+    /*
+        constant:
+          3.4
+
+        default curve:
+          3.4;10000,4.0
+
+        custom curve:
+          3.4;10000,4.0,lin
+          3.4;10000,4.0,linear
+          3.4;10000,4.0,-2
+
+     */
+
+    implicit object Read extends scopt.Read[Envelope] {
+      def arity = 1
+
+      def reads: String => Envelope = { s =>
+        val arr         = s.split(';')
+        val startLevel  = arr(0).toDouble
+        val segB        = Vector.newBuilder[Segment]
+        for (i <- 1 until arr.length) {
+          val segArr = arr(i).split(',')
+          val numFrames = segArr(0).toInt
+          val tgtLevel  = segArr(1).toDouble
+          val curve     = segArr.length match {
+            case 2 => Curve.linear
+            case 3 => segArr(2).toLowerCase match {
+              case "step"                 => Curve.step
+              case "lin" | "linear"       => Curve.linear
+              case "exp" | "exponential"  => Curve.exponential
+              case "sine"                 => Curve.sine
+              case "welch"                => Curve.welch
+              case "squared"              => Curve.squared
+              case "cubed"                => Curve.cubed
+              case x                      => Curve.parametric(x.toFloat)
+            }
+            case _ => throw new IllegalArgumentException(s"Invalid envelope segment: ${arr(i)}")
+          }
+          segB += Segment(numFrames = numFrames, targetLevel = tgtLevel, curve = curve)
+        }
+        Envelope(startLevel = startLevel, segments = segB.result())
+      }
+    }
+  }
+  case class Envelope(startLevel: Double, segments: Vec[Segment]) {
+    import kollflitz.Ops._
+
+    private[this] val pairs = (Segment(numFrames = 1, targetLevel = startLevel) +: segments).mapPairs { (s1, s2) =>
+      s1.targetLevel -> s2
+    }
+
+    private[this] val frameAccum = {
+      (0 +: segments.map(_.numFrames)).integrate.toArray
+    }
+
+    private[this] val numFrames   = if (frameAccum.isEmpty) 0           else frameAccum.last
+    private[this] val lastLevel   = if (segments  .isEmpty) startLevel  else segments.last.targetLevel
+
+    def levelAt(frame: Int): Double = {
+      if (frame <= 0) startLevel else if (frame >= numFrames) lastLevel
+      else {
+        val i = java.util.Arrays.binarySearch(frameAccum, frame)
+        val j = if (i < 0) -(i + 2) else i
+        val (startLevel, seg) = pairs(j)
+        val pos = (frame - frameAccum(j)).toDouble / seg.numFrames
+        seg.curve.levelAt(pos = pos.toFloat, y1 = startLevel.toFloat, y2 = seg.targetLevel.toFloat)
+      }
+    }
+  }
+
+  case class Config(imgInTemp     : File      = file("in-%d.png"),
+                    imgOutTemp    : File      = file("out-%d.png"),
+                    gngOutTemp    : File      = null,
+                    startInIdx    : Int       = 1,
+                    endInIdx      : Int       = -1,
+                    frameStep     : Int       = 10,
+                    holdFirst     : Int       = 0,
+                    invertPD      : Boolean   = false,
+                    invertImgOut  : Boolean   = false,
+                    strokeWidth   : Double    = 2.0,
+                    rngSeed       : Int       = 0xBEE,
+                    maxNodes      : Int       = 4000,
+                    gngStepSize   : Int       = 27,
+                    gngLambda     : Int       = 27,
+                    gngEdgeAge    : Int       = 108,
+                    gngEpsilon    : Double    = 0.05,
+                    gngEpsilon2   : Double    = 1.0e-4,
+                    gngAlpha      : Double    = 0.2,
+                    gngBeta       : Envelope  = 5.0e-6,
+                    gngUtility    : Envelope  = 18.0,
+                    widthOut      : Int       = 0,
+                    heightOut     : Int       = 0,
+                    fadeOut       : Boolean   = false
                    ) {
 
     def formatImgIn (frame: Int): File = formatTemplate(imgInTemp , frame)
@@ -96,6 +179,10 @@ object Neural {
         .text (s"Number of input frames to 'hold' while building up the GNG (default ${default.holdFirst})")
         .validate(i => if (i >= 0) Right(()) else Left("Must be >= 0") )
         .action { (v, c) => c.copy(holdFirst = v) }
+
+      opt[Unit] ("fade-out")
+        .text ("'Fade out' by reducing nodes to zero in the end.")
+        .action { (_, c) => c.copy(fadeOut = true) }
 
       opt[Unit] ("invert-pd")
         .text ("Invert gray scale probabilities.")
@@ -154,14 +241,16 @@ object Neural {
         .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
         .action { (v, c) => c.copy(gngAlpha = v) }
 
-      opt[Double] ("beta")
-        .text (s"GNG beta parameter (default ${default.gngBeta})")
-        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
+      private def envFormat = "Envelope format: <start-level>[;<num-frames>,<target-level>[,<curve>]]*"
+
+      opt[Envelope] ("beta")
+        .text (s"GNG beta parameter (default ${default.gngBeta}). $envFormat")
+//        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
         .action { (v, c) => c.copy(gngBeta = v) }
 
-      opt[Double] ("utility")
-        .text (s"GNG-U utility parameter (default ${default.gngUtility})")
-        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
+      opt[Envelope] ("utility")
+        .text (s"GNG-U utility parameter (default ${default.gngUtility}). $envFormat")
+//        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
         .action { (v, c) => c.copy(gngUtility = v) }
 
 //      opt[Int] ('t', "interim")
@@ -233,34 +322,7 @@ object Neural {
   def run(config: Config): Unit = {
     import config._
 
-    val c         = new ComputeGNG
-    c.maxNodes    = maxNodes
-    c.stepSize    = gngStepSize
-    c.algorithm   = neuralgas.Algorithm.GNGU
-    c.lambdaGNG   = gngLambda
-    c.maxEdgeAge  = gngEdgeAge
-    c.epsilonGNG  = gngEpsilon  .toFloat
-    c.epsilonGNG2 = gngEpsilon2 .toFloat
-    c.alphaGNG    = gngAlpha    .toFloat
-    c.setBetaGNG(gngBeta.toFloat)
-    c.noNewNodesGNGB = false
-    c.GNG_U_B     = true
-    c.utilityGNG  = gngUtility  .toFloat
-    c.autoStopB   = false
-    c.reset()
-    val rnd       = c.getRNG
-    rnd.setSeed(rngSeed)
-    c.addNode(null)
-    c.addNode(null)
-
-    var imgFloorIdx             = -1
-    var imgCeilIdx              = -1
-    var imgFloor: BufferedImage = null
-    var imgCeil : BufferedImage = null
-    var pdFloor : PD            = null
-    var pdCeil  : PD            = null
-
-    val res           = new ComputeGNG.Result
+    val c = new ComputeGNG
 
     require (formatImgIn(startInIdx).isFile)
     require (formatImgIn (0) != formatImgIn (1), "Input  image template does not specify frame index")
@@ -277,7 +339,44 @@ object Neural {
     val frameInIndices  = if (holdFirst == 0) frameInIndices0 else Vector.fill(holdFirst)(startInIdx) ++ frameInIndices0
     var frameOutIdx     = 1
     val numOutFrames    = (frameInIndices.size - 1) * frameStep
+    val fadeOutOff      = numOutFrames - maxNodes + 1
     println(s"numOutFrames = $numOutFrames")
+
+    def fillParams(frame: Int): Unit = {
+//      val frame   = frameOutIdx - 1
+      val beta    = gngBeta   .levelAt(frame).toFloat
+      val utility = gngUtility.levelAt(frame).toFloat
+
+      c.maxNodes        = maxNodes
+      c.stepSize        = gngStepSize
+      c.algorithm       = neuralgas.Algorithm.GNGU
+      c.lambdaGNG       = gngLambda
+      c.maxEdgeAge      = gngEdgeAge
+      c.epsilonGNG      = gngEpsilon  .toFloat
+      c.epsilonGNG2     = gngEpsilon2 .toFloat
+      c.alphaGNG        = gngAlpha    .toFloat
+      c.setBetaGNG(beta)
+      c.noNewNodesGNGB  = false
+      c.GNG_U_B         = true
+      c.utilityGNG      = utility
+      c.autoStopB       = false
+    }
+    fillParams(0)
+    c.reset()
+    val rnd = c.getRNG
+    rnd.setSeed(rngSeed)
+    c.addNode(null)
+    c.addNode(null)
+
+    var imgFloorIdx             = -1
+    var imgCeilIdx              = -1
+    var imgFloor: BufferedImage = null
+    var imgCeil : BufferedImage = null
+    var pdFloor : PD            = null
+    var pdCeil  : PD            = null
+
+    val res           = new ComputeGNG.Result
+    var cValid        = true
 
     var lastProgress  = 0
     println("_" * 100)
@@ -310,12 +409,23 @@ object Neural {
       for (fStep <- 0 until frameStep) {
         val fGNG      = formatGNGOut(frameOutIdx)
         val fImgOut   = formatImgOut(frameOutIdx)
+        val hasGNG    = fGNG    .length() > 0
+        val hasImage  = fImgOut .length() > 0L
 
-        if (fGNG.length() > 0) {
-          readGNG(c, fGNG)
+        if (hasGNG) {
+          cValid = false
           rnd.setSeed(rnd.nextLong()) // XXX TODO --- should store a recoverable seed
 
-        } else {
+        }
+
+        if ((!hasGNG || !hasImage) && !cValid) {
+          val fGNGPrev = formatGNGOut(frameOutIdx - 1)
+          readGNG(c, fGNGPrev)
+          cValid = true
+        }
+
+        if (!hasGNG) {
+          fillParams(frameOutIdx - 1)
           import numbers.Implicits._
           val weight    = fStep.linlin(0, frameStep, 0, 1)
           val isFloor   = rnd.nextDouble() >= weight
@@ -325,12 +435,15 @@ object Neural {
           val h         = img.getHeight
           c.panelWidth  = w
           c.panelHeight = h
+          if (fadeOut && frameOutIdx > fadeOutOff) {
+            c.maxNodes  = maxNodes - (frameOutIdx - fadeOutOff)
+          }
 
           c.learn(res)
           writeGNG(c, fGNG)
         }
 
-        if (fImgOut.length() == 0L) {
+        if (!hasImage) {
           renderImage(config, c = c, fImgOut = fImgOut, quiet = true)
         }
 
