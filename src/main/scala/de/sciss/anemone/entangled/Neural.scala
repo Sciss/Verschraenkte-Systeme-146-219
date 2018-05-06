@@ -241,7 +241,7 @@ object Neural {
 //        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
         .action { (v, c) => c.copy(gngEpsilon2 = v) }
 
-      opt[Double] ("alpha")
+      opt[Envelope] ("alpha")
         .text (s"GNG alpha parameter (default ${default.gngAlpha}). $envFormat")
 //        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
         .action { (v, c) => c.copy(gngAlpha = v) }
