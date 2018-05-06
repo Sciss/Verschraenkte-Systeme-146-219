@@ -38,6 +38,7 @@ object Neural {
 
   object Envelope {
     implicit def constant(f: Double): Envelope = Envelope(f, Vector.empty)
+    implicit def fromInt (i: Int   ): Envelope = Envelope(i, Vector.empty)
 
     /*
         constant:
@@ -87,6 +88,10 @@ object Neural {
   case class Envelope(startLevel: Double, segments: Vec[Segment]) {
     import kollflitz.Ops._
 
+    override def toString: String =
+      if (segments.isEmpty) startLevel.toFloat.toString
+      else s"$productPrefix($startLevel, ${segments.mkString("Vec(", ", ", ")")})"
+
     private[this] val pairs = (Segment(numFrames = 1, targetLevel = startLevel) +: segments).mapPairs { (s1, s2) =>
       s1.targetLevel -> s2
     }
@@ -121,18 +126,18 @@ object Neural {
                     invertImgOut  : Boolean   = false,
                     strokeWidth   : Double    = 2.0,
                     rngSeed       : Int       = 0xBEE,
-                    maxNodes      : Int       = 4000,
-                    gngStepSize   : Int       = 27,
-                    gngLambda     : Int       = 27,
-                    gngEdgeAge    : Int       = 108,
-                    gngEpsilon    : Double    = 0.05,
-                    gngEpsilon2   : Double    = 1.0e-4,
-                    gngAlpha      : Double    = 0.2,
+                    maxNodes      : Envelope  = 4000,
+                    gngStepSize   : Envelope  = 27,
+                    gngLambda     : Envelope  = 27,
+                    gngEdgeAge    : Envelope  = 108,
+                    gngEpsilon    : Envelope  = 0.05,
+                    gngEpsilon2   : Envelope  = 1.0e-4,
+                    gngAlpha      : Envelope  = 0.2,
                     gngBeta       : Envelope  = 5.0e-6,
                     gngUtility    : Envelope  = 18.0,
                     widthOut      : Int       = 0,
-                    heightOut     : Int       = 0,
-                    fadeOut       : Boolean   = false
+                    heightOut     : Int       = 0
+//                    fadeOut       : Boolean   = false
                    ) {
 
     def formatImgIn (frame: Int): File = formatTemplate(imgInTemp , frame)
@@ -180,9 +185,9 @@ object Neural {
         .validate(i => if (i >= 0) Right(()) else Left("Must be >= 0") )
         .action { (v, c) => c.copy(holdFirst = v) }
 
-      opt[Unit] ("fade-out")
-        .text ("'Fade out' by reducing nodes to zero in the end.")
-        .action { (_, c) => c.copy(fadeOut = true) }
+//      opt[Unit] ("fade-out")
+//        .text ("'Fade out' by reducing nodes to zero in the end.")
+//        .action { (_, c) => c.copy(fadeOut = true) }
 
       opt[Unit] ("invert-pd")
         .text ("Invert gray scale probabilities.")
@@ -201,9 +206,9 @@ object Neural {
         .text (s"Random number generator seed (default ${default.rngSeed})")
         .action { (v, c) => c.copy(rngSeed = v) }
 
-      opt[Int] ('n', "max-nodes")
-        .text (s"Maximum number of nodes (default: ${default.maxNodes})")
-        .validate(i => if (i >= 0) Right(()) else Left("Must be > 0") )
+      opt[Envelope] ('n', "max-nodes")
+        .text (s"Maximum number of nodes (default: ${default.maxNodes}). $envFormat")
+//        .validate(i => if (i >= 0) Right(()) else Left("Must be > 0") )
         .action { (v, c) => c.copy(maxNodes = v) }
 
 //      opt[Int] ("decim")
@@ -211,34 +216,34 @@ object Neural {
 //        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
 //        .action { (v, c) => c.copy(maxNodesDecim = v) }
 
-      opt[Int] ("gng-step")
-        .text (s"GNG step size (default ${default.gngStepSize})")
-        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
+      opt[Envelope] ("gng-step")
+        .text (s"GNG step size (default ${default.gngStepSize}). $envFormat")
+//        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
         .action { (v, c) => c.copy(gngStepSize = v) }
 
-      opt[Int] ("lambda")
-        .text (s"GNG lambda parameter (default ${default.gngLambda})")
-        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
+      opt[Envelope] ("lambda")
+        .text (s"GNG lambda parameter (default ${default.gngLambda}). $envFormat")
+//        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
         .action { (v, c) => c.copy(gngLambda = v) }
 
-      opt[Int] ("edge-age")
-        .text (s"GNG maximum edge age (default ${default.gngEdgeAge})")
-        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
+      opt[Envelope] ("edge-age")
+        .text (s"GNG maximum edge age (default ${default.gngEdgeAge}). $envFormat")
+//        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
         .action { (v, c) => c.copy(gngEdgeAge = v) }
 
-      opt[Double] ("eps")
-        .text (s"GNG epsilon parameter (default ${default.gngEpsilon})")
-        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
+      opt[Envelope] ("eps")
+        .text (s"GNG epsilon parameter (default ${default.gngEpsilon}). $envFormat")
+//        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
         .action { (v, c) => c.copy(gngEpsilon = v) }
 
-      opt[Double] ("eps2")
-        .text (s"GNG epsilon 2 parameter (default ${default.gngEpsilon2})")
-        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
+      opt[Envelope] ("eps2")
+        .text (s"GNG epsilon 2 parameter (default ${default.gngEpsilon2}). $envFormat")
+//        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
         .action { (v, c) => c.copy(gngEpsilon2 = v) }
 
       opt[Double] ("alpha")
-        .text (s"GNG alpha parameter (default ${default.gngAlpha})")
-        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
+        .text (s"GNG alpha parameter (default ${default.gngAlpha}). $envFormat")
+//        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
         .action { (v, c) => c.copy(gngAlpha = v) }
 
       private def envFormat = "Envelope format: <start-level>[;<num-frames>,<target-level>[,<curve>]]*"
@@ -339,26 +344,35 @@ object Neural {
     val frameInIndices  = if (holdFirst == 0) frameInIndices0 else Vector.fill(holdFirst)(startInIdx) ++ frameInIndices0
     var frameOutIdx     = 1
     val numOutFrames    = (frameInIndices.size - 1) * frameStep
-    val fadeOutOff      = numOutFrames - maxNodes + 1
+//    val fadeOutOff      = numOutFrames - maxNodes + 1
     println(s"numOutFrames = $numOutFrames")
 
     def fillParams(frame: Int): Unit = {
 //      val frame   = frameOutIdx - 1
-      val beta    = gngBeta   .levelAt(frame).toFloat
-      val utility = gngUtility.levelAt(frame).toFloat
+      val vBeta     = gngBeta     .levelAt(frame).toFloat
+      val vUtility  = gngUtility  .levelAt(frame).toFloat
+      val vMaxNodes = maxNodes    .levelAt(frame).round.toInt
+      val vStepSize = gngStepSize .levelAt(frame).round.toInt
+      val vLambda   = gngLambda   .levelAt(frame).round.toInt
+      val vEdgeAge  = gngEdgeAge  .levelAt(frame).round.toInt
+      val vEpsilon  = gngEpsilon  .levelAt(frame).toFloat
+      val vEpsilon2 = gngEpsilon2 .levelAt(frame).toFloat
+      val vAlpha    = gngAlpha    .levelAt(frame).toFloat
 
-      c.maxNodes        = maxNodes
-      c.stepSize        = gngStepSize
+      import numbers.Implicits._
+
+      c.maxNodes        = math.max(2, vMaxNodes)
+      c.stepSize        = math.max(1, vStepSize)
       c.algorithm       = neuralgas.Algorithm.GNGU
-      c.lambdaGNG       = gngLambda
-      c.maxEdgeAge      = gngEdgeAge
-      c.epsilonGNG      = gngEpsilon  .toFloat
-      c.epsilonGNG2     = gngEpsilon2 .toFloat
-      c.alphaGNG        = gngAlpha    .toFloat
-      c.setBetaGNG(beta)
+      c.lambdaGNG       = math.max(1, vLambda)
+      c.maxEdgeAge      = math.max(1, vEdgeAge)
+      c.epsilonGNG      = vEpsilon .clip(0f, 1f)
+      c.epsilonGNG2     = vEpsilon2.clip(0f, 1f)
+      c.alphaGNG        = vAlpha   .clip(0f, 1f)
+      c.setBetaGNG(vBeta.clip(0f, 1f))
       c.noNewNodesGNGB  = false
       c.GNG_U_B         = true
-      c.utilityGNG      = utility
+      c.utilityGNG      = vUtility
       c.autoStopB       = false
     }
     fillParams(0)
@@ -435,9 +449,9 @@ object Neural {
           val h         = img.getHeight
           c.panelWidth  = w
           c.panelHeight = h
-          if (fadeOut && frameOutIdx > fadeOutOff) {
-            c.maxNodes  = maxNodes - (frameOutIdx - fadeOutOff)
-          }
+//          if (fadeOut && frameOutIdx > fadeOutOff) {
+//            c.maxNodes  = maxNodes - (frameOutIdx - fadeOutOff)
+//          }
 
           c.learn(res)
           writeGNG(c, fGNG)
