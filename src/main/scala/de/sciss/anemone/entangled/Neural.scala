@@ -16,7 +16,7 @@ package de.sciss.anemone.entangled
 import java.awt.geom.Line2D
 import java.awt.image.BufferedImage
 import java.awt.{BasicStroke, Color, RenderingHints}
-import java.io.{BufferedInputStream, BufferedOutputStream, DataInputStream, DataOutputStream, FileInputStream, FileOutputStream}
+import java.io.{BufferedInputStream, BufferedOutputStream, DataInputStream, DataOutputStream, FileInputStream, FileOutputStream, PrintStream}
 
 import de.sciss.file._
 import de.sciss.kollflitz.Vec
@@ -148,6 +148,8 @@ object Neural {
   }
 
   final val GNG_COOKIE = 0x474E4701   // "GNG\1"
+
+  final val ALL_COOKIE = 0x416C6C65   // "Alle"
 
   def main(args: Array[String]): Unit = {
     val default = Config()
@@ -669,6 +671,66 @@ object Neural {
 
     } finally {
       fos.close()
+    }
+  }
+
+  def writeMinGNG(numFrames: Int, fOut: File)(read: (ComputeGNG, Int) => Unit): Unit = {
+    val fos = new FileOutputStream(fOut)
+    try {
+      val dos = new DataOutputStream(new BufferedOutputStream(fos))
+      import dos._
+      writeInt(ALL_COOKIE)
+      writeShort(numFrames)
+      val c = new ComputeGNG
+      for (fi <- 0 until numFrames) {
+        read(c, fi)
+        import c._
+        writeShort(nNodes)
+        for (ni <- 0 until nNodes) {
+          val n = nodes(ni)
+          writeFloat(n.x / panelWidth )
+          writeFloat(n.y / panelHeight)
+        }
+        writeShort(nEdges)
+        for (ei <- 0 until nEdges) {
+          val e = edges(ei)
+          writeShort(e.from)
+          writeShort(e.to  )
+        }
+      }
+      dos.flush()
+    } finally {
+      fos.close()
+    }
+  }
+
+  /*
+
+    [nodes]
+    idx: x, y
+
+    [edges]
+    idx: from, to
+
+   */
+  def writeMinGNGText(c: ComputeGNG, fOut: File): Unit = {
+    val os = new PrintStream(fOut, "UTF-8")
+    try {
+      os.println("[nodes]")
+      for (ni <- 0 until c.nNodes) {
+        val n = c.nodes(ni)
+        os.println(s"$ni: ${n.x}, ${n.y}")
+      }
+
+      os.println()
+      os.println("[edges]")
+      for (ei <- 0 until c.nEdges) {
+        val e = c.edges(ei)
+        os.println(s"$ei: ${e.from}, ${e.to}")
+      }
+      os.flush()
+    } finally {
+      os.close()
     }
   }
 }
