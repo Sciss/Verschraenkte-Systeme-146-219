@@ -10,7 +10,7 @@ import scala.swing.Swing
 
 object Render {
   def main(args: Array[String]): Unit = {
-    testSlur()
+    testBurn()
   }
 
   def any2stringadd: Nothing = sys.error("")
@@ -26,6 +26,38 @@ object Render {
       gui = SimpleGUI(ctl)
     }
     ctl.run(g)
+  }
+
+
+  def testBurn(): Unit = {
+    val g = Graph {
+      import graph._
+      val frameIn   = 9475
+      val frameOrig = frameIn / 25
+      val fIn1      = file(s"/data/projects/Anemone/Verschraenkte-Systeme-146-219/collat_7a510609-out-$frameIn-erode-slur.png")
+      val fIn2      = file(s"/data/projects/Anemone/Verschraenkte-Systeme-146-219/prothese_7a510609_image_out/collat_7a510609-$frameOrig.png")
+      val fOut      = file(s"/data/projects/Anemone/Verschraenkte-Systeme-146-219/collat_7a510609-out-$frameIn-erode-slur-burn.png")
+      val i1        = ImageFileIn(fIn1, numChannels = 1)
+      val i2s       = ImageFileIn(fIn2, numChannels = 1)
+      val width     = 2160
+      val height    = 2160
+      val frameSize = width * height
+
+      val i2        = AffineTransform2D.scale(i2s,
+        widthIn = width/2, heightIn = height/2, widthOut = width, heightOut = height, sx = 2, sy = 2, zeroCrossings = 0)
+
+//      val flt = -((-i1 + (1.0: GE)) / i2).min(1.0) + (1.0: GE)
+//      val flt = (-((-i1 + (1.0: GE)) * (256.0/255.0) / (i2 + (1.0: GE))) + (1.0: GE)).clip(0.0, 1.0)
+      val flt = ((-((-i1 * 255.0 + (255.0: GE)) * 256.0 / (i2 * 255.0 + (1.0: GE))) + (255.0: GE)) / 255.0).clip(0.0, 1.0)
+
+      Progress(Frames(flt) / frameSize, Metro(width))
+
+      val sig     = flt
+      val specOut = ImageFile.Spec(width = width, height = height, numChannels = 1)
+      ImageFileOut(fOut, specOut, in = sig)
+    }
+
+    runSwingSwing(g)
   }
 
   def testSlur(): Unit = {
@@ -61,7 +93,8 @@ object Render {
         val weights = ValueDoubleSeq(wv: _*)  // integrated and normalized
 //        RepeatWindow(weights).take(100).poll(Metro(2), "weights")
         val delays  = ValueIntSeq   (dv: _*)
-        val noise   = RepeatWindow((WhiteNoise() + (1.0: GE)) * 0.5, num = wv.size)  // zero to one
+//        val noise   = RepeatWindow((WhiteNoise() + (1.0: GE)) * 0.5, num = wv.size)  // zero to one
+        val noise   = Latch((WhiteNoise() + (1.0: GE)) * 0.5, Metro(wv.size))  // zero to one
         // noise.poll(Metro(2), "noise")
         val p       = noise < weights
 //        RepeatWindow(p).take(100).poll(Metro(2), "p")
