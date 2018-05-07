@@ -32,8 +32,8 @@ object Neural {
   def formatTemplate(temp: File, n: Int): File =
     temp.replaceName(temp.name.format(n))
 
-  case class Segment(numFrames: Int, targetLevel: Double, curve: Curve = linear) {
-    require (numFrames > 0)
+  case class Segment(targetFrame: Int, targetLevel: Double, curve: Curve = linear) {
+    require (targetFrame > 0)
   }
 
   object Envelope {
@@ -63,7 +63,7 @@ object Neural {
         val segB        = Vector.newBuilder[Segment]
         for (i <- 1 until arr.length) {
           val segArr = arr(i).split(',')
-          val numFrames = segArr(0).toInt
+          val tgtFrame  = segArr(0).toInt
           val tgtLevel  = segArr(1).toDouble
           val curve     = segArr.length match {
             case 2 => Curve.linear
@@ -79,7 +79,7 @@ object Neural {
             }
             case _ => throw new IllegalArgumentException(s"Invalid envelope segment: ${arr(i)}")
           }
-          segB += Segment(numFrames = numFrames, targetLevel = tgtLevel, curve = curve)
+          segB += Segment(targetFrame = tgtFrame, targetLevel = tgtLevel, curve = curve)
         }
         Envelope(startLevel = startLevel, segments = segB.result())
       }
@@ -92,12 +92,13 @@ object Neural {
       if (segments.isEmpty) startLevel.toFloat.toString
       else s"$productPrefix($startLevel, ${segments.mkString("Vec(", ", ", ")")})"
 
-    private[this] val pairs = (Segment(numFrames = 1, targetLevel = startLevel) +: segments).mapPairs { (s1, s2) =>
+    private[this] val pairs = (Segment(targetFrame = 1, targetLevel = startLevel) +: segments).mapPairs { (s1, s2) =>
       s1.targetLevel -> s2
     }
 
     private[this] val frameAccum = {
-      (0 +: segments.map(_.numFrames)).integrate.toArray
+//      (0 +: segments.map(_.targetFrame)).integrate.toArray
+      (0 +: segments.map(_.targetFrame)).toArray
     }
 
     private[this] val numFrames   = if (frameAccum.isEmpty) 0           else frameAccum.last
@@ -109,7 +110,7 @@ object Neural {
         val i = java.util.Arrays.binarySearch(frameAccum, frame)
         val j = if (i < 0) -(i + 2) else i
         val (startLevel, seg) = pairs(j)
-        val pos = (frame - frameAccum(j)).toDouble / seg.numFrames
+        val pos = (frame - frameAccum(j)).toDouble / seg.targetFrame
         seg.curve.levelAt(pos = pos.toFloat, y1 = startLevel.toFloat, y2 = seg.targetLevel.toFloat)
       }
     }
@@ -120,6 +121,7 @@ object Neural {
                     gngOutTemp    : File      = null,
                     startInIdx    : Int       = 1,
                     endInIdx      : Int       = -1,
+                    skipFrames    : Int       = 0,
                     frameStep     : Int       = 10,
                     holdFirst     : Int       = 0,
                     invertPD      : Boolean   = false,
@@ -174,6 +176,10 @@ object Neural {
       opt[Int] ("end")
         .text ("Image input end index (inclusive)")
         .action { (v, c) => c.copy(endInIdx = v) }
+
+      opt[Int] ("skip")
+        .text (s"Number of output frames to skip (default: ${default.skipFrames}).")
+        .action { (v, c) => c.copy(skipFrames = v) }
 
       opt[Int] ('f', "frame-step")
         .text (s"Frame step or output frames per input frame (default ${default.frameStep})")
@@ -425,20 +431,20 @@ object Neural {
         val fImgOut   = formatImgOut(frameOutIdx)
         val hasGNG    = fGNG    .length() > 0
         val hasImage  = fImgOut .length() > 0L
+        val isSkip    = frameOutIdx <= skipFrames
 
         if (hasGNG) {
           cValid = false
           rnd.setSeed(rnd.nextLong()) // XXX TODO --- should store a recoverable seed
-
         }
 
-        if ((!hasGNG || !hasImage) && !cValid) {
+        if ((!hasGNG || !hasImage) && !cValid && !isSkip) {
           val fGNGPrev = formatGNGOut(frameOutIdx - 1)
           readGNG(c, fGNGPrev)
           cValid = true
         }
 
-        if (!hasGNG) {
+        if (!hasGNG && !isSkip) {
           fillParams(frameOutIdx - 1)
           import numbers.Implicits._
           val weight    = fStep.linlin(0, frameStep, 0, 1)
@@ -457,7 +463,7 @@ object Neural {
           writeGNG(c, fGNG)
         }
 
-        if (!hasImage) {
+        if (!hasImage && !isSkip) {
           renderImage(config, c = c, fImgOut = fImgOut, quiet = true)
         }
 

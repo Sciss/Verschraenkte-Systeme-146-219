@@ -14,3 +14,36 @@ Builds with sbt against Scala 2.12.
 ## video rendering
 
     ffmpeg -i out_test/collat_7a510609-out-%d.png -r 25 -vf scale=1080:1080 out.mp4
+
+Neural settings
+
+    -i
+    /data/projects/Anemone/Verschraenkte-Systeme-146-219/prothese_7a510609_image_out/collat_7a510609-%d.png
+    -o
+    /data/projects/Anemone/Verschraenkte-Systeme-146-219/out_test/collat_7a510609-out-%d.png
+    -g
+    /data/projects/Anemone/Verschraenkte-Systeme-146-219/gng_test/collat_7a510609-out-%d.gng
+    --hold-first
+    25
+    --frame-step
+    25
+    --invert-pd
+    --invert-output
+    -w
+    2160
+    -h
+    2160
+    --max-nodes
+    8640;25000,8640,step;40050,2,lin
+    --beta
+    5.0e-6;20025,5.0e-6,step;40050,5.0e-4,exp
+    --utility
+    18;20800,18,step;40050,9,lin
+    --alpha
+    0.2;22000,0.2,step;40050,0.4,lin
+    --edge-age
+    108;24600,108,step;40050,54,lin
+    --eps
+    0.05;25200,0.05,step;40050,0.075,exp
+    --eps2
+    1.0e-4;25400,0.05,step;40050,0.01,exp
