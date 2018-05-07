@@ -1,21 +1,179 @@
+/*
+ *  Render.scala
+ *  (Verschränkte Systeme 146:219)
+ *
+ *  Copyright (c) 2018 Hanns Holger Rutz. All rights reserved.
+ *
+ *  This software is published under the GNU General Public License v3+
+ *
+ *
+ *  For further information, please contact Hanns Holger Rutz at
+ *  contact@sciss.de
+ */
+
 package de.sciss.anemone.entangled
 
 import de.sciss.file._
+import de.sciss.fscape.graph.ImageFile
 import de.sciss.fscape.gui.SimpleGUI
 import de.sciss.fscape.stream.Control
 import de.sciss.fscape.{GE, Graph, graph}
 import de.sciss.kollflitz
 
+import scala.concurrent.Future
 import scala.swing.Swing
 
 object Render {
+  case class Config(imgInTemp     : File  = file("in-%d.png"),
+                    srcInTemp     : File  = file("src-%d.png"),
+                    imgOutTemp    : File  = file("out-%d.png"),
+                    startInIdx    : Int   = 1,
+                    endInIdx      : Int   = -1,
+//                    skipFrames    : Int   = 0,
+                    frameStep     : Int   = 10,
+                    holdFirst     : Int   = 0,
+                    rngSeed       : Int   = 0xDEAD
+                   ) {
+
+    def formatImgIn (frame: Int): File = Neural.formatTemplate(imgInTemp  , frame)
+    def formatSrcIn (frame: Int): File = Neural.formatTemplate(srcInTemp  , frame)
+    def formatImgOut(frame: Int): File = Neural.formatTemplate(imgOutTemp , frame)
+  }
+
   def main(args: Array[String]): Unit = {
-    testBurn()
+    val default = Config()
+    val p = new scopt.OptionParser[Config]("Neural") {
+      opt[File]('i', "input")
+        .required()
+        .text ("Image input file template, where %d would represent frame number")
+        .action { (f, c) => c.copy(imgInTemp = f) }
+
+      opt[File]('s', "source")
+        .required()
+        .text ("Video image source file template, should end in '.png' or '.jpg', and %d would represent frame number.")
+        .action { (f, c) => c.copy(srcInTemp = f) }
+
+      opt[File]('o', "output")
+        .required()
+        .text ("Image output file template, should end in '.png' or '.jpg', and %d would represent frame number.")
+        .action { (f, c) => c.copy(imgOutTemp = f) }
+
+      opt[Int] ("start")
+        .text (s"Image input start index (default ${default.startInIdx})")
+        .action { (v, c) => c.copy(startInIdx = v) }
+
+      opt[Int] ("end")
+        .text ("Image input end index (inclusive)")
+        .action { (v, c) => c.copy(endInIdx = v) }
+
+      // not yet implemented
+//      opt[Int] ("skip")
+//        .text (s"Number of output frames to skip (default: ${default.skipFrames}).")
+//        .action { (v, c) => c.copy(skipFrames = v) }
+
+      opt[Int] ('f', "frame-step")
+        .text (s"Frame step or output frames per input frame (default ${default.frameStep})")
+        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
+        .action { (v, c) => c.copy(frameStep = v) }
+
+      opt[Int] ('l', "hold-first")
+        .text (s"Number of input frames to 'hold' while building up the GNG (default ${default.holdFirst})")
+        .validate(i => if (i >= 0) Right(()) else Left("Must be >= 0") )
+        .action { (v, c) => c.copy(holdFirst = v) }
+
+      opt[Int] ("seed")
+        .text (s"Random number generator seed (default ${default.rngSeed})")
+        .action { (v, c) => c.copy(rngSeed = v) }
+    }
+    p.parse(args, default).fold(sys.exit(1))(run)
+  }
+
+
+  def run(config: Config): Unit = {
+    import config._
+    val specIn    = ImageFile.readSpec(formatImgIn(startInIdx))
+    val specSrc   = ImageFile.readSpec(formatSrcIn(startInIdx))
+    val endInIdx1 = if (endInIdx >= 0) endInIdx else {
+      val numImages = Iterator.from(startInIdx).indexWhere { idx =>
+        val f = formatImgIn(idx)
+        !f.isFile
+      }
+      startInIdx + numImages - 1
+    }
+    val startSrcIdx   = startInIdx  // XXX TODO
+    val numFrames     = endInIdx1 - startSrcIdx + 1
+    val numFramesSrc0 = (numFrames + frameStep - 1) / frameStep - holdFirst
+    val numFramesSrc  = if (formatSrcIn(numFramesSrc0).exists()) numFramesSrc0 else numFramesSrc0 - 1
+    val endSrcIdx     = numFramesSrc
+
+    import specIn.{width, height}
+    val g = Graph {
+      import graph._
+      def frameInOutIndices() = ArithmSeq(start = startInIdx, length = endInIdx1 - startInIdx + 1)
+      val frameInIndices    = frameInOutIndices()
+      val frameOutIndices   = frameInOutIndices()
+      val frameSrcIndices   = ValueIntSeq(
+        Vector.fill(holdFirst)(startSrcIdx) ++ (startSrcIdx to endSrcIdx) :+ endSrcIdx: _*
+      )
+
+      val imgIn = ImageFileSeqIn(imgInTemp, numChannels = specIn.numChannels, indices = frameInIndices )
+      val srcIn = ImageFileSeqIn(srcInTemp, numChannels = specIn.numChannels, indices = frameSrcIndices)
+
+      val resample = if (frameStep == 1) srcIn else {
+        ResampleWindow(srcIn, size = specSrc.width * specSrc.height, factor = frameStep).clip(0.0, 1.0)
+      }
+      val scale = if (specSrc.width == width && specSrc.height == height) resample else {
+        val i2 = resample
+        AffineTransform2D.scale(i2,
+          widthIn = specSrc.width, heightIn = specSrc.height, widthOut = width, heightOut = height,
+          sx = width.toDouble / specSrc.width, sy = height.toDouble / specSrc.height, zeroCrossings = 0)
+      }
+
+      val erode = {
+        val kernel    = 3
+        val kernelS   = kernel * kernel
+        val m1        = MatrixInMatrix(imgIn, rowsOuter = height, columnsOuter = width, rowsInner = kernel, columnsInner = kernel)
+        val m3        = RunningMin(m1, Metro(kernelS))
+        ResizeWindow(m3, size = kernelS, start = kernelS - 1)
+      }
+      val slur = {
+        val narrow        = 0.8
+        val randomization = 0.2
+        val repeat        = 20
+        val pTL           = (1.0 - narrow) * 0.5 * randomization
+        val pT            = narrow * randomization
+        val pTR           = pTL
+        val pC            = 1.0 - randomization
+        val wv            = Vector(pTL, pT, pTR, 0.0, pC, 0.0, 0.0, 0.0, 0.0)
+        import kollflitz.Ops._
+        val wvi     = wv.integrate
+        assert(wvi.last == 1.0 && wvi.size == 9)
+        val kernel  = ValueDoubleSeq(wvi: _*).take(wvi.size)
+        GimpSlur(erode, width = width, height = height, kernel = kernel, kernelWidth = 3, kernelHeight = 3,
+          repeat = repeat)
+      }
+
+      val burn = {
+        val i1 = slur
+        val i2 = scale
+        (-((-i1 * 255.0 + (255.0: GE)) * 256.0 / (i2 * 255.0 + (1.0: GE))) + (255.0: GE)) / 255.0 // .clip(0.0, 1.0)
+      }
+
+      val sigOut    = burn.clip(0, 1)
+      val frameSize = width * height
+
+      Progress(Frames(sigOut) / (frameSize.toLong * numFrames), Metro(width))
+
+      val tpeOut  = if (imgOutTemp.extL == "png") ImageFile.Type.PNG else ImageFile.Type.JPG
+      val specOut = specIn.copy(fileType = tpeOut, sampleFormat = ImageFile.SampleFormat.Int8, quality = 95)
+      ImageFileSeqOut(imgOutTemp, specOut, indices = frameOutIndices, in = sigOut)
+    }
+    runGraphOnConsole(g, blockSize = width, seed = rngSeed)
   }
 
   def any2stringadd: Nothing = sys.error("")
 
-  def runSwingSwing(g: Graph): Unit = {
+  def runGraphOnSwing(g: Graph): Unit = {
     var gui: SimpleGUI = null
     val cfg       = Control.Config()
     cfg.useAsync  = false
@@ -28,6 +186,23 @@ object Render {
     ctl.run(g)
   }
 
+  def runGraphOnConsole(g: Graph, blockSize: Int, seed: Long): Future[Unit] = {
+    val cfg       = Control.Config()
+    cfg.useAsync  = false
+    cfg.blockSize = blockSize
+    cfg.seed      = seed
+    var lastProg = 0
+    cfg.progressReporter = { p =>
+      val prog = (p.total * 100).toInt
+      while (lastProg < prog) {
+        print('#')
+        lastProg += 1
+      }
+    }
+    val ctl = Control(cfg)
+    ctl.run(g)
+    ctl.status
+  }
 
   def testBurn(): Unit = {
     val g = Graph {
@@ -57,7 +232,7 @@ object Render {
       ImageFileOut(fOut, specOut, in = sig)
     }
 
-    runSwingSwing(g)
+    runGraphOnSwing(g)
   }
 
   def testSlur(): Unit = {
@@ -114,7 +289,7 @@ object Render {
       ImageFileOut(fOut, specOut, in = sig)
     }
 
-    runSwingSwing(g)
+    runGraphOnSwing(g)
   }
 
   def testSlur_OLD(): Unit = {
@@ -149,7 +324,7 @@ object Render {
       ImageFileOut(fOut, specOut, in = sig)
     }
 
-    runSwingSwing(g)
+    runGraphOnSwing(g)
   }
 
   def testErode(): Unit = {
@@ -178,6 +353,6 @@ object Render {
       ImageFileOut(fOut, specOut, in = sig)
     }
 
-    runSwingSwing(g)
+    runGraphOnSwing(g)
   }
 }

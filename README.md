@@ -47,3 +47,16 @@ Neural settings
     0.05;25200,0.05,step;40050,0.075,exp
     --eps2
     1.0e-4;25400,0.05,step;40050,0.01,exp
+
+Render settings
+
+    -s
+    /data/projects/Anemone/Verschraenkte-Systeme-146-219/prothese_7a510609_image_out/collat_7a510609-%d.png
+    -i
+    /data/projects/Anemone/Verschraenkte-Systeme-146-219/out_test/collat_7a510609-out-%d.png
+    -o
+    /data/projects/Anemone/Verschraenkte-Systeme-146-219/render_test/collat_7a510609-outR-%d.png
+    --hold-first
+    25
+    --frame-step
+    25

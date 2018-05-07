@@ -18,7 +18,7 @@ lazy val commonSettings = Seq(
     "de.sciss"          %% "swingplus"      % "0.3.0",
     "de.sciss"          %  "neuralgas-core" % "2.3.1",
     "de.sciss"          %% "scalacollider"  % "1.26.1",   // Curve.exp fix
-    "de.sciss"          %% "fscape-core"    % "2.14.1"
+    "de.sciss"          %% "fscape-core"    % "2.14.2"
   )
 )
 

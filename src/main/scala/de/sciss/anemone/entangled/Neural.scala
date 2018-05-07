@@ -285,9 +285,7 @@ object Neural {
         .validate(i => if (i >= 0) Right(()) else Left("Must be >= 0") )
         .action { (v, c) => c.copy(heightOut = v) }
     }
-    p.parse(args, default).fold(sys.exit(1)) { config =>
-      run(config)
-    }
+    p.parse(args, default).fold(sys.exit(1))(run)
   }
 
   case class Edge(from: Int, to: Int)
