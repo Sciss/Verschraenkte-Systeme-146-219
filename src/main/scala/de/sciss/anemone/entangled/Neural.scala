@@ -93,7 +93,7 @@ object Neural {
       else s"$productPrefix($startLevel, ${segments.mkString("Vec(", ", ", ")")})"
 
     private[this] val pairs = (Segment(targetFrame = 1, targetLevel = startLevel) +: segments).mapPairs { (s1, s2) =>
-      s1.targetLevel -> s2
+      (s1.targetLevel, s2.targetFrame - s1.targetFrame, s2)
     }
 
     private[this] val frameAccum = {
@@ -109,8 +109,8 @@ object Neural {
       else {
         val i = java.util.Arrays.binarySearch(frameAccum, frame)
         val j = if (i < 0) -(i + 2) else i
-        val (startLevel, seg) = pairs(j)
-        val pos = (frame - frameAccum(j)).toDouble / seg.targetFrame
+        val (startLevel, segFrames, seg) = pairs(j)
+        val pos = (frame - frameAccum(j)).toDouble / segFrames
         seg.curve.levelAt(pos = pos.toFloat, y1 = startLevel.toFloat, y2 = seg.targetLevel.toFloat)
       }
     }
