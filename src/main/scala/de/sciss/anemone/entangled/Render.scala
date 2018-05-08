@@ -191,6 +191,7 @@ object Render {
     cfg.useAsync  = false
     cfg.blockSize = blockSize
     cfg.seed      = seed
+    println("_" * 100)
     var lastProg = 0
     cfg.progressReporter = { p =>
       val prog = (p.total * 100).toInt
