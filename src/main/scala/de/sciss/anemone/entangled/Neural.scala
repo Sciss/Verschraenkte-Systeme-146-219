@@ -447,7 +447,7 @@ object Neural {
         if (!hasGNG && !isSkip) {
           fillParams(frameOutIdx - 1)
           import numbers.Implicits._
-          val weight    = fStep.linlin(0, frameStep, 0, 1)
+          val weight    = fStep.linLin(0, frameStep, 0, 1)
           val isFloor   = rnd.nextDouble() >= weight
           c.pd          = if (isFloor) pdFloor  else pdCeil
           val img       = if (isFloor) imgFloor else imgCeil

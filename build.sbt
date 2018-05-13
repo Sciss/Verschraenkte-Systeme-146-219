@@ -12,13 +12,13 @@ lazy val commonSettings = Seq(
   scalacOptions      ++= Seq("-deprecation", "-unchecked", "-feature", "-encoding", "utf8", "-Xfuture", "-Xlint"),
   libraryDependencies ++= Seq(
     "de.sciss"          %% "fileutil"       % "1.1.3",
-    "de.sciss"          %% "numbers"        % "0.1.5",
+    "de.sciss"          %% "numbers"        % "0.2.0",
     "de.sciss"          %% "kollflitz"      % "0.2.2",
     "com.github.scopt"  %% "scopt"          % "3.7.0",
     "de.sciss"          %% "swingplus"      % "0.3.0",
     "de.sciss"          %  "neuralgas-core" % "2.3.1",
-    "de.sciss"          %% "scalacollider"  % "1.26.1",   // Curve.exp fix
-    "de.sciss"          %% "fscape-core"    % "2.14.3"
+    "de.sciss"          %% "scalacollider"  % "1.27.0",
+    "de.sciss"          %% "fscape-core"    % "2.15.0"
   )
 )
 
