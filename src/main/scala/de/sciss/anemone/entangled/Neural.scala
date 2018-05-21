@@ -672,6 +672,50 @@ object Neural {
     }
   }
 
+  def readMinGNG(fIn: File, c: ComputeGNG, cookie: Boolean = true, bipolar: Boolean = false)
+                (init: Int => Unit = _ => ())(write: Int => Unit): Unit = {
+    val fis = new FileInputStream(fIn)
+    try {
+      val dis = new DataInputStream(new BufferedInputStream(fis))
+      import dis._
+      if (cookie) {
+        val cookieVal = readInt()
+        require (cookieVal == ALL_COOKIE, s"Unexpected cookie ${cookieVal.toHexString} != ${ALL_COOKIE.toHexString}")
+      }
+      val numFrames = readShort() & 0xFFFF
+      init(numFrames)
+      for (fi <- 0 until numFrames) {
+        import c._
+        nNodes = readShort() & 0xFFFF
+        if (c.nodes.length < nNodes) {
+          import numbers.Implicits._
+          val newSize = nNodes.nextPowerOfTwo
+          c.nodes = new Array[NodeGNG](newSize)
+        }
+        for (ni <- 0 until nNodes) {
+          val n = new NodeGNG
+          nodes(ni) = n
+          val x0 = readFloat()
+          val y0 = readFloat()
+          val x  = if (bipolar) x0 * 0.5f + 0.5f else x0
+          val y  = if (bipolar) y0 * 0.5f + 0.5f else y0
+          n.x = x * panelWidth
+          n.y = y * panelHeight
+        }
+        nEdges = readShort() & 0xFFFF
+        for (ei <- 0 until nEdges) {
+          val e = new EdgeGNG
+          edges(ei) = e
+          e.from  = readShort() & 0xFFFF
+          e.to    = readShort() & 0xFFFF
+        }
+        write(fi)
+      }
+    } finally {
+      fis.close()
+    }
+  }
+
   def writeMinGNG(numFrames: Int, fOut: File)(read: (ComputeGNG, Int) => Unit): Unit = {
     val fos = new FileOutputStream(fOut)
     try {

@@ -5,7 +5,7 @@ import de.sciss.neuralgas.ComputeGNG
 
 object TestData {
   def main(args: Array[String]): Unit = {
-    testEnvelope()
+    writeTestAllData()
   }
 
   def writeTestTextData(): Unit = {
@@ -22,8 +22,8 @@ object TestData {
   }
 
   def writeTestAllData(): Unit = {
-    val numFrames = 20025
-    val fOut = file("/data/projects/Anemone/Verschraenkte-Systeme-146-219/test-min-20k.bin")
+    val numFrames = 40050
+    val fOut = file("/data/projects/Anemone/Verschraenkte-Systeme-146-219/vs146_219-gng-min-all.bin")
     if (fOut.exists()) {
       println(s"File '$fOut' already exists. Not overwriting.")
       return
