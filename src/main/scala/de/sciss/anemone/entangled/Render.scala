@@ -25,18 +25,19 @@ import scala.swing.Swing
 
 object Render {
   case class Config(imgInTemp     : File  = file("in-%d.png"),
-                    srcInTemp     : File  = file("src-%d.png"),
+                    srcInTemp     : Option[File] = None, // file("src-%d.png"),
                     imgOutTemp    : File  = file("out-%d.png"),
                     startInIdx    : Int   = 1,
                     endInIdx      : Int   = -1,
 //                    skipFrames    : Int   = 0,
                     frameStep     : Int   = 10,
                     holdFirst     : Int   = 0,
-                    rngSeed       : Int   = 0xDEAD
+                    rngSeed       : Int   = 0xDEAD,
+                    calm          : Boolean = false
                    ) {
 
     def formatImgIn (frame: Int): File = Neural.formatTemplate(imgInTemp  , frame)
-    def formatSrcIn (frame: Int): File = Neural.formatTemplate(srcInTemp  , frame)
+//    def formatSrcIn (frame: Int): File = Neural.formatTemplate(srcInTemp  , frame)
     def formatImgOut(frame: Int): File = Neural.formatTemplate(imgOutTemp , frame)
   }
 
@@ -49,9 +50,9 @@ object Render {
         .action { (f, c) => c.copy(imgInTemp = f) }
 
       opt[File]('s', "source")
-        .required()
+//        .required()
         .text ("Video image source file template, should end in '.png' or '.jpg', and %d would represent frame number.")
-        .action { (f, c) => c.copy(srcInTemp = f) }
+        .action { (f, c) => c.copy(srcInTemp = Some(f)) }
 
       opt[File]('o', "output")
         .required()
@@ -84,6 +85,10 @@ object Render {
       opt[Int] ("seed")
         .text (s"Random number generator seed (default ${default.rngSeed})")
         .action { (v, c) => c.copy(rngSeed = v) }
+
+      opt[Unit] ("calm")
+        .text (s"Apply calmness filter")
+        .action { (_, c) => c.copy(calm = true) }
     }
     p.parse(args, default).fold(sys.exit(1))(run)
   }
@@ -92,7 +97,6 @@ object Render {
   def run(config: Config): Unit = {
     import config._
     val specIn    = ImageFile.readSpec(formatImgIn(startInIdx))
-    val specSrc   = ImageFile.readSpec(formatSrcIn(startInIdx))
     val endInIdx1 = if (endInIdx >= 0) endInIdx else {
       val numImages = Iterator.from(startInIdx).indexWhere { idx =>
         val f = formatImgIn(idx)
@@ -103,7 +107,9 @@ object Render {
     val startSrcIdx   = startInIdx  // XXX TODO
     val numFrames     = endInIdx1 - startSrcIdx + 1
     val numFramesSrc0 = (numFrames + frameStep - 1) / frameStep - holdFirst
-    val numFramesSrc  = if (formatSrcIn(numFramesSrc0).exists()) numFramesSrc0 else numFramesSrc0 - 1
+    val numFramesSrc  = srcInTemp.fold(numFramesSrc0 - 1) { srcInTemp0 =>
+      if (Neural.formatTemplate(srcInTemp0, numFramesSrc0).exists()) numFramesSrc0 else numFramesSrc0 - 1
+    }
     val endSrcIdx     = numFramesSrc
 
     import specIn.{width, height}
@@ -117,16 +123,22 @@ object Render {
       )
 
       val imgIn = ImageFileSeqIn(imgInTemp, numChannels = specIn.numChannels, indices = frameInIndices )
-      val srcIn = ImageFileSeqIn(srcInTemp, numChannels = specIn.numChannels, indices = frameSrcIndices)
 
-      val resample = if (frameStep == 1) srcIn else {
-        ResampleWindow(srcIn, size = specSrc.width * specSrc.height, factor = frameStep).clip(0.0, 1.0)
-      }
-      val scale = if (specSrc.width == width && specSrc.height == height) resample else {
-        val i2 = resample
-        AffineTransform2D.scale(i2,
-          widthIn = specSrc.width, heightIn = specSrc.height, widthOut = width, heightOut = height,
-          sx = width.toDouble / specSrc.width, sy = height.toDouble / specSrc.height, zeroCrossings = 0)
+      val scale: Option[GE] = srcInTemp.map { srcInTemp0 =>
+        val specSrc = ImageFile.readSpec(Neural.formatTemplate(srcInTemp0, startInIdx))
+
+        val srcIn = ImageFileSeqIn(srcInTemp0, numChannels = specIn.numChannels, indices = frameSrcIndices)
+
+        val resample = if (frameStep == 1) srcIn else {
+          ResampleWindow(srcIn, size = specSrc.width * specSrc.height, factor = frameStep).clip(0.0, 1.0)
+        }
+
+        if (specSrc.width == width && specSrc.height == height) resample else {
+          val i2 = resample
+          AffineTransform2D.scale(i2,
+            widthIn = specSrc.width, heightIn = specSrc.height, widthOut = width, heightOut = height,
+            sx = width.toDouble / specSrc.width, sy = height.toDouble / specSrc.height, zeroCrossings = 0)
+        }
       }
 
       val erode = {
@@ -153,14 +165,15 @@ object Render {
           repeat = repeat)
       }
 
-      val burn = {
+      val burn = scale.fold[GE](slur) { scale0 =>
         val i1 = slur
-        val i2 = scale
+        val i2 = scale0
         (-((-i1 * 255.0 + (255.0: GE)) * 256.0 / (i2 * 255.0 + (1.0: GE))) + (255.0: GE)) / 255.0 // .clip(0.0, 1.0)
       }
 
-      val sigOut    = burn.clip(0, 1)
+      val sigOut0   = burn.clip(0, 1)
       val frameSize = width * height
+      val sigOut    = if (calm) Calm.mkCalm(sigOut0, frameSize = frameSize) else sigOut0
 
       Progress(Frames(sigOut) / (frameSize.toLong * numFrames), Metro(width))
 

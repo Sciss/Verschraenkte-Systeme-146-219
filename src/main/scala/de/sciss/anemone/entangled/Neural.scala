@@ -119,6 +119,7 @@ object Neural {
   case class Config(imgInTemp     : File      = file("in-%d.png"),
                     imgOutTemp    : File      = file("out-%d.png"),
                     gngOutTemp    : File      = null,
+                    minGNGIn      : Option[File] = None,
                     startInIdx    : Int       = 1,
                     endInIdx      : Int       = -1,
                     skipFrames    : Int       = 0,
@@ -151,7 +152,7 @@ object Neural {
 
   final val ALL_COOKIE = 0x416C6C65   // "Alle"
 
-  def main(args: Array[String]): Unit = {
+  def parseConfig(args: Array[String]): Option[Config] = {
     val default = Config()
     val p = new scopt.OptionParser[Config]("Neural") {
       opt[File]('i', "input")
@@ -170,6 +171,10 @@ object Neural {
       opt[File]('g', "gng-output")
         .text ("GNG data output file template, should end in '.gng', and %d would represent frame number.")
         .action { (f, c) => c.copy(gngOutTemp = f) }
+
+      opt[File]("gng-min-in")
+        .text ("GNG minimum format data input file.")
+        .action { (f, c) => c.copy(minGNGIn = Some(f)) }
 
       opt[Int] ("start")
         .text (s"Image input start index (default ${default.startInIdx})")
@@ -193,9 +198,9 @@ object Neural {
         .validate(i => if (i >= 0) Right(()) else Left("Must be >= 0") )
         .action { (v, c) => c.copy(holdFirst = v) }
 
-//      opt[Unit] ("fade-out")
-//        .text ("'Fade out' by reducing nodes to zero in the end.")
-//        .action { (_, c) => c.copy(fadeOut = true) }
+      //      opt[Unit] ("fade-out")
+      //        .text ("'Fade out' by reducing nodes to zero in the end.")
+      //        .action { (_, c) => c.copy(fadeOut = true) }
 
       opt[Unit] ("invert-pd")
         .text ("Invert gray scale probabilities.")
@@ -216,64 +221,64 @@ object Neural {
 
       opt[Envelope] ('n', "max-nodes")
         .text (s"Maximum number of nodes (default: ${default.maxNodes}). $envFormat")
-//        .validate(i => if (i >= 0) Right(()) else Left("Must be > 0") )
+        //        .validate(i => if (i >= 0) Right(()) else Left("Must be > 0") )
         .action { (v, c) => c.copy(maxNodes = v) }
 
-//      opt[Int] ("decim")
-//        .text (s"Pixel decimation to determine maximum number of nodes (default ${default.maxNodesDecim})")
-//        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
-//        .action { (v, c) => c.copy(maxNodesDecim = v) }
+      //      opt[Int] ("decim")
+      //        .text (s"Pixel decimation to determine maximum number of nodes (default ${default.maxNodesDecim})")
+      //        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
+      //        .action { (v, c) => c.copy(maxNodesDecim = v) }
 
       opt[Envelope] ("gng-step")
         .text (s"GNG step size (default ${default.gngStepSize}). $envFormat")
-//        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
+        //        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
         .action { (v, c) => c.copy(gngStepSize = v) }
 
       opt[Envelope] ("lambda")
         .text (s"GNG lambda parameter (default ${default.gngLambda}). $envFormat")
-//        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
+        //        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
         .action { (v, c) => c.copy(gngLambda = v) }
 
       opt[Envelope] ("edge-age")
         .text (s"GNG maximum edge age (default ${default.gngEdgeAge}). $envFormat")
-//        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
+        //        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
         .action { (v, c) => c.copy(gngEdgeAge = v) }
 
       opt[Envelope] ("eps")
         .text (s"GNG epsilon parameter (default ${default.gngEpsilon}). $envFormat")
-//        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
+        //        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
         .action { (v, c) => c.copy(gngEpsilon = v) }
 
       opt[Envelope] ("eps2")
         .text (s"GNG epsilon 2 parameter (default ${default.gngEpsilon2}). $envFormat")
-//        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
+        //        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
         .action { (v, c) => c.copy(gngEpsilon2 = v) }
 
       opt[Envelope] ("alpha")
         .text (s"GNG alpha parameter (default ${default.gngAlpha}). $envFormat")
-//        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
+        //        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
         .action { (v, c) => c.copy(gngAlpha = v) }
 
       private def envFormat = "Envelope format: <start-level>[;<num-frames>,<target-level>[,<curve>]]*"
 
       opt[Envelope] ("beta")
         .text (s"GNG beta parameter (default ${default.gngBeta}). $envFormat")
-//        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
+        //        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
         .action { (v, c) => c.copy(gngBeta = v) }
 
       opt[Envelope] ("utility")
         .text (s"GNG-U utility parameter (default ${default.gngUtility}). $envFormat")
-//        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
+        //        .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
         .action { (v, c) => c.copy(gngUtility = v) }
 
-//      opt[Int] ('t', "interim")
-//        .text (s"Interim file output, every n steps, or zero to turn off (default ${default.interim})")
-//        .validate(i => if (i >= 0) Right(()) else Left("Must be >= 0") )
-//        .action { (v, c) => c.copy(interim = v) }
-//
-//      opt[Unit] ("interim-images")
-//        .text ("Generate images for interim files.")
-//        .action { (_, c) => c.copy(interimImages = true) }
+      //      opt[Int] ('t', "interim")
+      //        .text (s"Interim file output, every n steps, or zero to turn off (default ${default.interim})")
+      //        .validate(i => if (i >= 0) Right(()) else Left("Must be >= 0") )
+      //        .action { (v, c) => c.copy(interim = v) }
+      //
+      //      opt[Unit] ("interim-images")
+      //        .text ("Generate images for interim files.")
+      //        .action { (_, c) => c.copy(interimImages = true) }
 
       opt[Int] ('w', "width")
         .text (s"Rendering output width in pixels, or zero to match input.")
@@ -285,7 +290,11 @@ object Neural {
         .validate(i => if (i >= 0) Right(()) else Left("Must be >= 0") )
         .action { (v, c) => c.copy(heightOut = v) }
     }
-    p.parse(args, default).fold(sys.exit(1))(run)
+    p.parse(args, default)
+  }
+
+  def main(args: Array[String]): Unit = {
+    parseConfig(args).fold(sys.exit(1))(run)
   }
 
   case class Edge(from: Int, to: Int)
@@ -672,15 +681,15 @@ object Neural {
     }
   }
 
-  def readMinGNG(fIn: File, c: ComputeGNG, cookie: Boolean = true, bipolar: Boolean = false)
+  def readMinGNG(fIn: File, c: ComputeGNG, cookie: Int = ALL_COOKIE, bipolar: Boolean = false)
                 (init: Int => Unit = _ => ())(write: Int => Unit): Unit = {
     val fis = new FileInputStream(fIn)
     try {
       val dis = new DataInputStream(new BufferedInputStream(fis))
       import dis._
-      if (cookie) {
+      if (cookie != 0) {
         val cookieVal = readInt()
-        require (cookieVal == ALL_COOKIE, s"Unexpected cookie ${cookieVal.toHexString} != ${ALL_COOKIE.toHexString}")
+        require (cookieVal == cookie, s"Unexpected cookie ${cookieVal.toHexString} != ${cookie.toHexString}")
       }
       val numFrames = readShort() & 0xFFFF
       init(numFrames)

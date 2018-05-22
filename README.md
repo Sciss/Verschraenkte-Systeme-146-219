@@ -72,3 +72,15 @@ Render settings:
     25
     --frame-step
     25
+
+Render settings David:
+
+    -i
+    /data/projects/Anemone/Verschraenkte-Systeme-146-219/out_david/david_ngn_32_3-%d.png
+    -o
+    /data/projects/Anemone/Verschraenkte-Systeme-146-219/render_david/david_ngn_32_3-R-%d.png
+    --frame-step
+    1
+    --calm
+    --seed
+    3501
