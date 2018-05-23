@@ -104,13 +104,23 @@ object Render {
       }
       startInIdx + numImages - 1
     }
-    val startSrcIdx   = startInIdx  // XXX TODO
-    val numFrames     = endInIdx1 - startSrcIdx + 1
-    val numFramesSrc0 = (numFrames + frameStep - 1) / frameStep - holdFirst
-    val numFramesSrc  = srcInTemp.fold(numFramesSrc0 - 1) { srcInTemp0 =>
-      if (Neural.formatTemplate(srcInTemp0, numFramesSrc0).exists()) numFramesSrc0 else numFramesSrc0 - 1
+    // val startSrcIdx   = startInIdx
+//    val startSrcIdx   = (startInIdx - holdFirst - 1) / frameStep + 1
+    val numFrames     = endInIdx1 - startInIdx + 1
+//    val numFramesSrc0 = (numFrames + frameStep - 1) / frameStep - holdFirst
+    val srcIndices  = srcInTemp.fold(Vector.empty[Int]) { srcInTemp0 =>
+//      if (Neural.formatTemplate(srcInTemp0, startSrcIdx + numFramesSrc0 - 1).exists()) numFramesSrc0 else numFramesSrc0 - 1
+      val endSrcIdx     = {
+        val numImages = Iterator.from(1).indexWhere { idx =>
+          val f = Neural.formatTemplate(srcInTemp0, idx)
+          !f.isFile
+        }
+        numImages
+      }
+      val startSrcIdx = (startInIdx - 1) / frameStep + 1
+      (Vector.fill(holdFirst)(1) ++ (1 to endSrcIdx) :+ endSrcIdx).drop(startSrcIdx - 1)
     }
-    val endSrcIdx     = numFramesSrc
+//    val endSrcIdx     = startSrcIdx + numFramesSrc - 1
 
     import specIn.{width, height}
     val g = Graph {
@@ -119,18 +129,21 @@ object Render {
       val frameInIndices    = frameInOutIndices()
       val frameOutIndices   = frameInOutIndices()
       val frameSrcIndices   = ValueIntSeq(
-        Vector.fill(holdFirst)(startSrcIdx) ++ (startSrcIdx to endSrcIdx) :+ endSrcIdx: _*
+//        Vector.fill(holdFirst)(startSrcIdx) ++ (startSrcIdx to endSrcIdx) :+ endSrcIdx: _*
+        // (Vector.fill(holdFirst)(1) ++ (1 to endSrcIdx) :+ endSrcIdx).drop(startSrcIdx - 1): _*
+        srcIndices: _*
       )
 
       val imgIn = ImageFileSeqIn(imgInTemp, numChannels = specIn.numChannels, indices = frameInIndices )
 
       val scale: Option[GE] = srcInTemp.map { srcInTemp0 =>
-        val specSrc = ImageFile.readSpec(Neural.formatTemplate(srcInTemp0, startInIdx))
+        val specSrc = ImageFile.readSpec(Neural.formatTemplate(srcInTemp0, srcIndices.head))
 
         val srcIn = ImageFileSeqIn(srcInTemp0, numChannels = specIn.numChannels, indices = frameSrcIndices)
 
         val resample = if (frameStep == 1) srcIn else {
-          ResampleWindow(srcIn, size = specSrc.width * specSrc.height, factor = frameStep).clip(0.0, 1.0)
+          ResampleWindow(srcIn, size = specSrc.width * specSrc.height, factor = frameStep,
+            zeroCrossings = 0).clip(0.0, 1.0)
         }
 
         if (specSrc.width == width && specSrc.height == height) resample else {
