@@ -93,7 +93,6 @@ object Render {
     p.parse(args, default).fold(sys.exit(1))(run)
   }
 
-
   def run(config: Config): Unit = {
     import config._
     val specIn    = ImageFile.readSpec(formatImgIn(startInIdx))

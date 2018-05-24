@@ -84,3 +84,12 @@ Render settings David:
     --calm
     --seed
     3501
+
+Assemble settings:
+
+    --input1
+    /data/projects/Anemone/Verschraenkte-Systeme-146-219/calm_test/collat_7a510609-outRC-%d.png
+    --input2
+    /data/projects/Anemone/Verschraenkte-Systeme-146-219/render_david/david_ngn_32_3-R-%d.png
+    --output
+    /data/projects/Anemone/Verschraenkte-Systeme-146-219/mix/mix-%d.png

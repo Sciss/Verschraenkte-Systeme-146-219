@@ -2,8 +2,8 @@ package de.sciss.anemone.entangled
 
 import de.sciss.anemone.entangled.Render.runGraphOnConsole
 import de.sciss.file._
+import de.sciss.fscape.{GE, Graph, graph}
 import de.sciss.numbers
-import de.sciss.fscape.{Graph, graph}
 
 object Convolve {
   def main(args: Array[String]): Unit = {
@@ -25,17 +25,18 @@ object Convolve {
     val g = Graph {
       import graph._
       import numbers.Implicits._
-      val kernel        = 32 // 64 // 8
-      val stepSize      = 1
-      val fIn1          = baseDir / "projects" / "Anemone" / "Verschraenkte-Systeme-146-219" / "render_test" / "collat_7a510609-outR-8444.png"
-      val fIn2          = baseDir / "projects" / "Anemone" / "Verschraenkte-Systeme-146-219" / "render_david" / "david_ngn_32_3-R-292.png"
+      val kernel        = 64 // 32 // 64 // 8
+      val stepSize      = 2 // 16 // 2
+      val frameIdx      = 20000
+      val fIn1          = baseDir / "projects" / "Anemone" / "Verschraenkte-Systeme-146-219" / "calm_test" / s"collat_7a510609-outRC-$frameIdx.png"
+      val fIn2          = baseDir / "projects" / "Anemone" / "Verschraenkte-Systeme-146-219" / "render_david" / s"david_ngn_32_3-R-$frameIdx.png"
       val fOut          = baseDir / "temp" / s"test-conv-k$kernel-X.png"
       val i1l           = ImageFileIn(fIn1, numChannels = 1)
       val i2l           = ImageFileIn(fIn2, numChannels = 1)
       val widthIn       = 2160
       val heightIn      = 2160
-      val widthOut      = 1080
-      val heightOut     = 1080
+      val widthOut      = 1024 // 1080
+      val heightOut     = 1024 // 1080
 //      val frameSizeIn   = widthIn * heightIn
       val frameSizeOut  = widthOut * heightOut
       val i1s           = AffineTransform2D.scale(i1l,
@@ -48,25 +49,68 @@ object Convolve {
         widthOut = widthOut, heightOut = heightOut,
         sx = 0.5, sy = 0.5, zeroCrossings = 0)
       val kernelS       = kernel * kernel
-      val m1      = MatrixInMatrix(i1,
-        rowsOuter = heightOut , columnsOuter  = widthOut,
-        rowsInner = kernel    , columnsInner  = kernel,
-        rowStep   = stepSize  , columnStep    = stepSize
-      )
-      val m2      = MatrixInMatrix(i2,
-        rowsOuter = heightOut , columnsOuter  = widthOut,
-        rowsInner = kernel    , columnsInner  = kernel,
-        rowStep   = stepSize  , columnStep    = stepSize
-      )
 
-      val m1f       = Real2FFT(m1, rows = kernel, columns = kernel)
-      val m2f       = Real2FFT(m2, rows = kernel, columns = kernel)
+      val i1t = i1.excess(0.2)
+      val i2t = i2.excess(0.2)
+
+      def mkMatrix(in: GE): GE = {
+        val a = MatrixInMatrix(in,
+          rowsOuter = heightOut , columnsOuter  = widthOut,
+          rowsInner = kernel    , columnsInner  = kernel,
+          rowStep   = stepSize  , columnStep    = stepSize
+        )
+//        val b = ResizeWindow(a, kernelS, stop = kernelS)
+//        val c = ResizeWindow(b, kernel , stop = kernel )
+//        c
+        a
+      }
+
+      val m1 = mkMatrix(i1t)
+      val m2 = mkMatrix(i2t)
+
+      val kernelOut = kernel // * 2
+
+      val win = {
+        val win1     = GenWindow(size = kernel , shape = GenWindow.Hann)
+        val win2    = GenWindow(size = kernelS, shape = GenWindow.Hann)
+        RepeatWindow(win2 * win1, size = kernelS, num = Int.MaxValue)
+      }
+      val m1w       = m1 * win
+      val m2w       = m2 * win
+      val m1f       = Real2FFT(m1w, rows = kernelOut, columns = kernelOut)
+      val m2f       = Real2FFT(m2w, rows = kernelOut, columns = kernelOut)
       val m3f       = m1f.complex * m2f
-      val m3        = Real2IFFT(m3f, rows = kernel, columns = kernel)
+      val m3        = Real2IFFT(m3f, rows = kernelOut, columns = kernelOut)
 
-      val resize    = ResizeWindow(m3, size = kernelS, start = kernelS - stepSize.squared)
+//      val resize    = ResizeWindow(m3, size = kernelOut.squared, start = kernelOut.squared - stepSize.squared)
 
-//      val flt = ResizeWindow(
+      val resize: GE = if (stepSize == 1) {
+//        ResizeWindow(m3, size = kernelOut.squared, start = kernelOut.squared - 1)
+        ResizeWindow(m3, size = kernelOut.squared, stop = -(kernelOut.squared - 1))
+      } else {
+        val r0 = m3
+//        println(s"size = $kernelOut, start = ${kernelOut- stepSize}")
+////        val r1 = ResizeWindow(r0, size = kernelOut, start = kernelOut - stepSize)
+//        val bar = kernelOut - stepSize
+//        val r1  = ResizeWindow(r0, size = kernelOut, start = bar/2, stop = -(bar - bar/2))
+////        AudioFileOut(file("/data/temp/fuckyou.aif"), AudioFileSpec(numChannels = 1, sampleRate = 44100), r1)
+//        val foo = (kernelOut - stepSize) * widthOut
+//        val r2 = ResizeWindow(r1, size = kernelOut * widthOut, start = foo/2, stop = -(foo - foo/2))
+//        Length(r2).poll(0, "r2.length")
+//        RunningMax(r0).last.poll(0, "r0.max")
+//        RunningMax(r1).last.poll(0, "r1.max")
+//        RunningMax(r2).last.poll(0, "r2.max")
+//        r2
+
+        ???
+//        val r2 = MatrixOutMatrix(r0, rowsInner = kernel, columnsInner = kernel, columnsOuter = widthOut,
+//          rowOff = (kernel - stepSize)/2, columnOff = (kernel - stepSize)/2, rowNum = stepSize, columnNum = stepSize)
+////        Length(r2).poll(0, "r2.length")
+////        RunningMax(r2).last.poll(0, "r2.max")
+//        r2
+      }
+
+      //      val flt = ResizeWindow(
 //        ResizeWindow(m3, size = kernelS, start = kernel * (kernel - stepSize)),
 //          size = kernel, start = (kernel - stepSize))
 
@@ -100,16 +144,17 @@ object Convolve {
 //      }
 
 
-      val fft1  = Real1FFT(i1    , size = widthOut)
-      val fft2  = Real1FFT(resize, size = widthOut)
-      val amt1  = 1076 // widthOut/3
-      val amt2  = widthOut - amt1
-      val fft1r = ResizeWindow(fft1 , size = widthOut       , start = +amt1)
-      val fft1s = ResizeWindow(fft1r, size = widthOut - amt1, start = -amt1)
-      val fft2r = ResizeWindow(fft2 , size = widthOut       , stop  = -amt2)
-      val fft2s = ResizeWindow(fft2r, size = widthOut - amt2, stop  = +amt2)
-      val zip   = fft1s + fft2s
-      val flt   = Real1IFFT(zip, size = widthOut)
+//      val fft1  = Real1FFT(i1    , size = widthOut)
+//      val fft2  = Real1FFT(resize, size = widthOut)
+//      val amt1  = 1078 // widthOut/3
+//      val amt2  = widthOut - amt1
+//      val fft1r = ResizeWindow(fft1 , size = widthOut       , start = +amt1)
+//      val fft1s = ResizeWindow(fft1r, size = widthOut - amt1, start = -amt1)
+//      val fft2r = ResizeWindow(fft2 , size = widthOut       , stop  = -amt2)
+//      val fft2s = ResizeWindow(fft2r, size = widthOut - amt2, stop  = +amt2)
+//      val zip   = fft1s + fft2s
+//      val flt   = Real1IFFT(zip, size = widthOut)
+      val flt   = resize
 
       Progress(Frames(flt) / (2 * frameSizeOut), Metro(widthOut))
 //      Length(flt).poll(0, "flt-len")
@@ -130,13 +175,13 @@ object Convolve {
 
       Progress(Frames(i4) / (2 * frameSizeOut), Metro(widthOut))
 
-      val sig     = i4.clip(0.0, 1.0)
+      val sig     = i4.clip(0.0, 1.0).pow(0.5)
       val specOut = ImageFile.Spec(width = widthOut, height = heightOut, numChannels = 1)
       ImageFileOut(fOut, specOut, in = sig)
     }
 
 //    val ctl = Control(cfg)
 //    ctl.run(g)
-    runGraphOnConsole(g, blockSize = 1080, seed = 12345)
+    runGraphOnConsole(g, blockSize = 1024 /* 1080 */, seed = 12345)
   }
 }
