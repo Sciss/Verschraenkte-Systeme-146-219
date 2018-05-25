@@ -16,6 +16,8 @@ object Assemble {
                     heightIn      : Int   = 1024,
                     widthOut      : Int   = 2160,
                     heightOut     : Int   = 1080,
+                    zeroCrossings : Int   = 3,
+                    skipLines     : Int   = 0
                    ) {
 
     def formatImgIn1(frame: Int): File = Neural.formatTemplate(imgIn1Temp , frame)
@@ -64,12 +66,20 @@ object Assemble {
         .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
         .action { (v, c) => c.copy(widthIn = v) }
 
-
       opt[Int] ("height-in")
         .text (s"Inner width (default ${default.heightIn})")
         .validate(i => if (i > 0) Right(()) else Left("Must be > 0") )
         .action { (v, c) => c.copy(heightIn = v) }
 
+      opt[Int] ('z', "zero-crossings")
+        .text (s"Resampling filter zero crossings (default ${default.zeroCrossings})")
+        .validate(i => if (i >= 0) Right(()) else Left("Must be >= 0") )
+        .action { (v, c) => c.copy(zeroCrossings = v) }
+
+      opt[Int] ('k', "skip-lines")
+        .text (s"Number of lines to skip and zero (default ${default.skipLines})")
+        .validate(i => if (i >= 0) Right(()) else Left("Must be >= 0") )
+        .action { (v, c) => c.copy(skipLines = v) }
     }
     p.parse(args, default).fold(sys.exit(1))(run)
   }
@@ -98,16 +108,22 @@ object Assemble {
       val frameIn2Indices = frameInOutIndices()
       val frameOutIndices = frameInOutIndices()
 
-      val in1 = ImageFileSeqIn(imgIn1Temp, numChannels = 1, indices = frameIn1Indices)
-      val in2 = ImageFileSeqIn(imgIn2Temp, numChannels = 1, indices = frameIn2Indices)
+      val in1a = ImageFileSeqIn(imgIn1Temp, numChannels = 1, indices = frameIn1Indices)
+      val in1 = if (skipLines == 0) in1a else
+        in1a.drop(specIn1.width*skipLines) ++ DC(0).take(specIn1.width*skipLines)
+
+      val in2a = ImageFileSeqIn(imgIn2Temp, numChannels = 1, indices = frameIn2Indices)
+      val in2 = if (skipLines == 0) in2a else
+        in2a.drop(specIn2.width*skipLines) ++ DC(0).take(specIn2.width*skipLines)
+
       val r1  = AffineTransform2D.scale(in1, widthIn = specIn1.width, heightIn = specIn1.height,
         widthOut = widthIn, heightOut = heightIn,
         sx = widthIn.toDouble / specIn1.width, sy = heightIn.toDouble / specIn1.height,
-        zeroCrossings = 0, wrap = 0)
+        zeroCrossings = zeroCrossings /*, wrap = 0 */).clip(0.0, 1.0)
       val r2  = AffineTransform2D.scale(in2, widthIn = specIn2.width, heightIn = specIn2.height,
         widthOut = widthIn, heightOut = heightIn,
         sx = widthIn.toDouble / specIn2.width, sy = heightIn.toDouble / specIn2.height,
-        zeroCrossings = 0, wrap = 0)
+        zeroCrossings = zeroCrossings /*, wrap = 0 */).clip(0.0, 1.0)
       val tx1 = (widthOut - 2*widthIn)/4
       val tx2 = widthOut - widthIn - (widthOut - 2*widthIn)/4
       val ty  = (heightOut - heightIn)/2
