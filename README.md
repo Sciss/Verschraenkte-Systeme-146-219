@@ -93,3 +93,7 @@ Assemble settings:
     /data/projects/Anemone/Verschraenkte-Systeme-146-219/render_david/david_ngn_32_3-R-%d.png
     --output
     /data/projects/Anemone/Verschraenkte-Systeme-146-219/mix/mix-%d.png
+
+L'Aquila out:
+
+    ffmpeg -i aquila/aquila-%d.png -pix_fmt yuv420p -crf 23 -r 25 -s 1024x512 aquila.mp4
